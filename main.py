@@ -256,4 +256,4 @@ class main():
 
 
 if __name__ == '__main__':
-    start1 = main(token="1616284866:AAGdL-P156n68oK3zssjybJEmxp3qezAZ4Q")
+    start1 = main(token="")
