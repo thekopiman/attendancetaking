@@ -6,6 +6,8 @@ from datetime import datetime
 import time
 from dateutil.relativedelta import relativedelta
 import random
+import os
+from DBUpdate import DBUpdate
 
 # Enable logging
 logging.basicConfig(
@@ -43,6 +45,19 @@ Example:
 mm/yyyy - https://form.gov.sg/Xxxx
 '''
 
+sample_timing_format = '''
+Examples:
+Date: dd/mm/yyyy
+Clock in: HHMM
+Clock out: HHMM
+
+Date: dd/mm/yyyy
+Clock in: HHMM
+
+Date: dd/mm/yyyy
+Clock out: HHMM
+'''
+
 
 class Attendance():
     def __init__(self, update: Update, context: CallbackContext):
@@ -52,17 +67,32 @@ class Attendance():
         try:
             # content is the vectors of message after the "/set" command
             self.content = context.args
-            self.reminder_timings = self.date_time_extraction(self.content)
-            for timing in self.reminder_timings:
+            if self.content == []:
+                raise UnboundLocalError
+
+            # Clock In
+            self.reminder_timings_clock_in = self.date_time_extraction_clock_in(
+                self.content)
+            for timing in self.reminder_timings_clock_in:
                 self.timing = timing
-                self.set_timer(self.update, self.content, self.timing)
+                self.set_timer_clock_in(self.update, self.content, self.timing)
+
+            # Clock Out
+            self.reminder_timings_clock_out = self.date_time_extraction_clock_out(
+                self.content)
+            for timing in self.reminder_timings_clock_out:
+                self.timing = timing
+                self.set_timer_clock_out(
+                    self.update, self.content, self.timing)
+
+            # print("HELLLLLLLOOOOOOOO       ", update.message.from_user)
             update.message.reply_text("The timings have been updated!")
 
         except UnboundLocalError:
             update.message.reply_text(
                 'Please key in this month attendance in this format\n' + sample_attendance_format)
 
-    def date_time_extraction(self, CallbackcontextContent) -> list:
+    def date_time_extraction_clock_in(self, CallbackcontextContent) -> list:
         '''
         Analyse and return the correct datetime values of the context.args values of /set
         '''
@@ -71,21 +101,21 @@ class Attendance():
         returnvalues = []
         for date in rawdates:
             shift = content[content.index(date)+2]
-            work = content[content.index(date)+3]
+            work = content[content.index(date)+3][1:-1].lower()
             if shift == '1':
-                if work == '(early)':
+                if work == 'early':
                     time = '0700'
-                elif work == '(late)':
+                elif work == 'late':
                     time = '0745'
-                elif work == '(ssu)':
+                elif work == 'ssu':
                     time = '0845'
                 else:
                     # Create a callback function to MAIN to create an ERROR function for the user and also to the server
                     pass
             elif shift == '2':
-                if work == '(ssu)':
+                if work == 'ssu':
                     time = '2045'
-                elif work == '(patrol)':
+                elif work == 'patrol':
                     time = '2030'
                 else:
                     # Create a callback function to MAIN to create an ERROR function for the user and also to the server
@@ -100,103 +130,129 @@ class Attendance():
 
         return returnvalues
 
-    def date_time_convert_to_db(self, DateTimeFormat):
-        return datetime.strftime(DateTimeFormat, "%d/%m/%Y %H%M")
+    def date_time_extraction_clock_out(self, CallbackcontextContent) -> list:
+        '''
+        Analyse and return the correct datetime values of the context.args values of /set
+        '''
+        content = CallbackcontextContent
+        rawdates = CallbackcontextContent[0::4]
+        returnvalues = []
+        night = False
+        for date in rawdates:
+            shift = content[content.index(date)+2]
+            work = content[content.index(date)+3][1:-1].lower()
+            if shift == '1':
+                if work == 'early':
+                    time = '2045'
+                elif work == 'late':
+                    time = '2115'
+                elif work == 'ssu':
+                    time = '1000'
+                else:
+                    # Create a callback function to MAIN to create an ERROR function for the user and also to the server
+                    pass
+            elif shift == '2':
+                night = True
+                if work == 'ssu':
+                    time = '1000'
+                elif work == 'patrol':
+                    time = '0945'
+                else:
+                    # Create a callback function to MAIN to create an ERROR function for the user and also to the server
+                    pass
+            elif shift == 'Training':
+                time = '1500'
+            else:
+                # Create a callback function to MAIN to create an ERROR function for the user and also to the server
+                pass
 
-    def set_timer(self, update: Update, context: CallbackContext, timing) -> None:
+            if night:
+                returnvalues.append(datetime.strptime(
+                    date + " " + time, "%d/%m/%Y %H%M") + relativedelta(days=+1))
+            else:
+                returnvalues.append(datetime.strptime(
+                    date + " " + time, "%d/%m/%Y %H%M"))
+
+        return returnvalues
+
+    def set_timer_clock_in(self, update: Update, context: CallbackContext, timing) -> None:
         # print("Hello this is running")
-        print("self.timing", self.timing)
         due = datetime.now() - self.timing
-        due = random.randint(10, 30)
-        chat_id = update.message.chat_id
-        print(chat_id)
-        self.context.job_queue.run_once(
-            self.message, due, context=chat_id, name=str(self.timing))
-        print(self.context.job_queue.get_jobs_by_name)
+        #
+        # Remember to delete this line of code after testing is done.
+        #
+        # due = random.randint(10, 30)
+        due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(5, 10)))
 
-    def message(self, context: CallbackContext) -> None:
+        chat_id = update.message.chat_id
+        # print(chat_id)
+        self.context.job_queue.run_once(
+            self.message_in, due, context=chat_id, name=str(self.timing) + " | Clock In")
+        # print("Hello good afternoon:   ",
+        #       self.context.job_queue.get_jobs_by_name(str(self.timing))[0].name)
+
+    def set_timer_clock_out(self, update: Update, context: CallbackContext, timing) -> None:
+        # print("Hello this is running")
+        due = datetime.now() - self.timing
+        #
+        # Remember to delete this line of code after testing is done.
+        #
+        # due = random.randint(10, 30)
+        due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(15, 20)))
+
+        chat_id = update.message.chat_id
+        # print(chat_id)
+        self.context.job_queue.run_once(
+            self.message_out, due, context=chat_id, name=str(self.timing) + " | Clock Out")
+        # print("Hello good afternoon:   ",
+        #       self.context.job_queue.get_jobs_by_name(str(self.timing))[0].name)
+
+    def message_in(self, context: CallbackContext) -> None:
         job = context.job
-        time = datetime.strftime(self.timing, "%H%M")
+        timing = datetime.now()
         dict_times = {"0700": "Shift 1 Early", "0745": "Shift 1 Late",
                       "0845": "Shift 1 SSU", "2045": "Shift 2 SSU", "2030": "Shift 2", '0830': "Training"}
-        text = '''
-        <b>Date: {date} | {work}</b>
 
-        Remember to clock in:
-        {link}
-        '''.format(date=datetime.strftime(self.timing, "%d/%m/%Y %H%M"), work=dict_times[time], link=self.request_links(self.timing))
-        context.bot.send_message(
-            job.context, text=text, parse_mode=parsemode.ParseMode.HTML)
+        try:
+            text = '''
+            <b>Date: {date} | {work}</b>\nRemember to clock in:\n{link}
+            '''.format(date=datetime.strftime(timing, "%d/%m/%Y %H%M"), work=dict_times[datetime.strftime(timing, "%H%M")], link=DBUpdate.request_links(timing, self.update.message.from_user['id']))  # Indicate User_id in the future for the last of the parameter
+        except KeyError:
+            text = '''
+            <b>Date: {date}</b>\nRemember to clock in:\n{link}
+            '''.format(date=datetime.strftime(timing, "%d/%m/%Y %H%M"), link=DBUpdate.request_links(timing, self.update.message.from_user['id']))  # Indicate User_id in the future for the last of the parameter
+        finally:
+            clock_in = '''/timing\nDate: {date}\nClock in: HHMM
+            '''.format(date=datetime.strftime(timing, "%d/%m/%Y"))
+            context.bot.send_message(
+                job.context, text=text, parse_mode=parsemode.ParseMode.HTML)
+
+            context.bot.send_message(
+                job.context, text=clock_in, parse_mode=parsemode.ParseMode.HTML)
+
         return None
 
-    def request_links(self, timing) -> str:
-        '''
-        Returns a string of the link
-        '''
-        with open("websites.txt", "r") as r:
-            txt = r.readlines()
-            for line in txt:
-                tpl = line.strip().split(" ")
-                time = tpl[0]
-                link = tpl[1]
-                if timing > datetime.strptime(time, "%m/%Y") and timing < (datetime.strptime(time, "%m/%Y")+relativedelta(months=+1)):
-                    # print(link)
-                    return link
+    def message_out(self, context: CallbackContext) -> None:
+        job = context.job
+        timing = datetime.now()
+        dict_times = {"2045": "Shift 1 Early", "2115": "Shift 1 Late",
+                      "2200": "Shift 1 SSU", "1000": "Shift 2 SSU", "0945": "Shift 2", '1500': "Training"}
 
-
-class DBUpdate():
-    def __init__(self, source="db.sqlite3"):
-        '''
-        This DB is used as a backup if the system happens to shut down and a restart is necessary. The programme will then read through the data here and continue with the reminders for each individual according to their ID.
-        '''
-        self.user = None
-        pass
-
-
-class WebsiteLink():
-    def __init__(self, update: Update, context: CallbackContext):
-        self.update = update
-        self.context = context
         try:
-            self.content = context.args
-            self.write_websites(self.website_extraction())
-            update.message.reply_text("The link has been updated!")
-
-        except UnboundLocalError:
-            update.message.reply_text(
-                'Please key in this month website link in this format\n' +
-                sample_website_format
-            )
-
-    def website_extraction(self) -> tuple:
-        if len(self.content) == 1:
-            return None
-        elif len(self.content) == 3:
-            return (self.content[0], self.content[-1])
-        else:
-            raise UnboundLocalError
-
-    def write_websites(self, tpl):
-        if tpl == None:
-            pass
-        else:
-            with open("websites.txt", "a+") as w:
-                w.write(f'{tpl[0]} {tpl[1]}\n')
-
-
-class Jobs():
-    def __init__(self):
-        '''
-        Not completed
-        '''
-        self.jobs_list = []
-        self.hex_jobs = []
-
-    def addjob(self, date_time):
-        self.jobs_list.append(date_time)
-
-    def removejob(self):
-        pass
+            text = '''
+            <b>Date: {date} | {work}</b>\nRemember to clock out:\n{link}
+            '''.format(date=datetime.strftime(timing, "%d/%m/%Y %H%M"), work=dict_times[datetime.strftime(timing, "%H%M")], link=DBUpdate.request_links(timing, self.update.message.from_user['id']))  # Indicate User_id in the future for the last of the parameter
+        except KeyError:
+            text = '''
+            <b>Date: {date}</b>\nRemember to clock out:\n{link}'''.format(date=datetime.strftime(timing, "%d/%m/%Y %H%M"), link=DBUpdate.request_links(timing, self.update.message.from_user['id']))  # Indicate User_id in the future for the last of the parameter
+        finally:
+            clock_out = '''/timing\nDate: {date}\nClock Out: HHMM'''.format(
+                date=datetime.strftime(timing, "%d/%m/%Y"))
+            context.bot.send_message(
+                job.context, text=text, parse_mode=parsemode.ParseMode.HTML)
+            context.bot.send_message(
+                job.context, text=clock_out, parse_mode=parsemode.ParseMode.HTML)
+        return None
 
 
 class main():
@@ -211,10 +267,11 @@ class main():
         dispatcher.add_handler(CommandHandler("help", self.help))
         dispatcher.add_handler(CommandHandler("queue", self.queue))
         dispatcher.add_handler(CommandHandler("reset", self.reset))
-        dispatcher.add_handler(CommandHandler("link", WebsiteLink))
+        dispatcher.add_handler(CommandHandler("link", DBUpdate.update_website))
         dispatcher.add_handler(CommandHandler("set", Attendance))
-        # dispatcher.add_handler(CommandHandler("set", set_timer))
-        # dispatcher.add_handler(CommandHandler("unset", unset))
+        dispatcher.add_handler(CommandHandler("timing", DBUpdate))
+        dispatcher.add_handler(CommandHandler(
+            "gettiming", DBUpdate.get_timing))
 
         # Start the Bot
         updater.start_polling()
@@ -227,11 +284,11 @@ class main():
     def start(self, update: Update, _: CallbackContext) -> None:
         '''Start messages'''
         update.message.reply_text(
-            'Hi! Use this to clock in and out!\n' + "Take note that this bot will not be able to remind you for ES dates or Special events")
+            'Hi! Use this to clock in and out!\n' + "Take note that this bot will not be able to remind you for ES dates or Special events (Watch out for Future Updates!!)")
         update.message.reply_text(
             'First, Please key in this month attendance in this format\n' + sample_attendance_format)
         update.message.reply_text(
-            'Second, Please key in this month attendance website (optional - Indicate NIL) using the /link command\n' + sample_website_format)
+            'Second, Please key in this month attendance website (optional) using the /link command\n' + sample_website_format)
 
     def help(self, update: Update, _: CallbackContext) -> None:
         '''Help Page'''
@@ -241,19 +298,42 @@ class main():
         /help - This message
         /queue - Check the queue for your attendance taking
         /reset - Remove all the queued reminders
+        /link - To create a new link for the next month MA. Type /link for the format.
+        /set - To create reminders according to the date and details mentioned. Type /set for the format.
+        /timing - Used for Clocking in and out. Type /timing for the format.
         ''')
 
     def queue(self, update: Update, context: CallbackContext) -> None:
         try:
-            print("JOB QUEUE:", context.job_queue.get_jobs_by_name())
+            # lists_of_jobs = ["2021-03-08 07:45:00", "2021-03-07 08:45:00", "2021-03-08 21:15:00", "2021-03-07 10:00:00"]
+            list_of_jobs = [x.name for x in context.job_queue.jobs()]
+            message_template = '''<b>Current Queue: </b>\n'''
+            if len(list_of_jobs) >= 1:
+                for i in range(len(list_of_jobs)):
+                    message_template = f'{message_template}{i+1}. {list_of_jobs[i]}\n'
+            else:
+                message_template = '<b>There are no reminders queued!</b>'
+
             update.message.reply_text(
-                context.job_queue.get_jobs_by_name())
+                message_template, parse_mode=parsemode.ParseMode.HTML)
         except Exception:
             update.message.reply_text("Did you type /queue correctly?")
 
-    def reset(self, update: Update, _: CallbackContext) -> None:
-        pass
+    def reset(self, update: Update, context: CallbackContext) -> None:
+        try:
+            list_of_jobs = context.job_queue.jobs()
+            for job in list_of_jobs:
+                job.schedule_removal()
+            update.message.reply_text(
+                "All of the reminders have been deleted!")
+
+        except Exception:
+            update.message.reply_text("Did you type /reset correctly?")
 
 
 if __name__ == '__main__':
-    start1 = main(token="")
+    # The Telegram Token is in the Environment Variable in the system.
+    # You may uncomment the following code if you would like to parse the token directly inside (Not recommanded due to security issues)
+    #start1 = main(token="XXXX-XXXXXXTokenXXXX")
+
+    start1 = main(token=os.getenv("TELEGRAM_TOKEN_ATTENDANCE"))
