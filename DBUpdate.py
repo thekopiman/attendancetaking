@@ -73,7 +73,8 @@ class DBUpdate():
     def timing(self, update: Update, context: CallbackContext):
         clock_in, clock_out = self.timecheck(
             "in", context.args), self.timecheck("out", context.args)
-
+        if clock_in == None and clock_out == None:
+            raise UnboundLocalError
         user_id = update.message.from_user['id']
         # print(f'{self.directory}{str(user_id)}.sqlite')
         if os.path.isfile(f'{self.directory}{str(user_id)}.sqlite'):
@@ -115,8 +116,6 @@ class DBUpdate():
             elif clock_in == None and clock_out != None:
                 cur.execute(
                     'INSERT INTO clocking(date,clock_out) VALUES (?,?)', (msg_date, clock_out, ))
-        else:
-            raise ValueError
         cur.execute('SELECT * from clocking')
 
         conn.commit()
@@ -251,6 +250,47 @@ class DBUpdate():
                 message_template += f'{date} | {clock_in} | {clock_out}\n'
             update.message.reply_text(
                 message_template, parse_mode=parsemode.ParseMode.HTML)
-        except (UnboundLocalError, IndexError):
+        except (UnboundLocalError, IndexError, ValueError):
             update.message.reply_text(
                 "Please key in month's MA timing in this format\n/gettiming mm/yyyy")
+
+    @classmethod
+    def updateuser(self, update: Update, context: CallbackContext) -> None:
+        directory = os.path.dirname(
+            os.path.realpath(__file__)) + "\Database\\"
+        user_info = update.message.from_user
+        if os.path.isfile(f'{directory}Users.sqlite'):
+            conn = sqlite3.connect(f'{directory}Users.sqlite')
+            cur = conn.cursor()
+        else:
+            conn = sqlite3.connect(f'{directory}Users.sqlite')
+            cur = conn.cursor()
+            cur.execute(
+                'CREATE TABLE "Users" ("id"	INTEGER,"first_name" TEXT, "last_name" TEXT, "username" TEXT);')
+
+        cur.execute('SELECT id from Users')
+        all_id = [x[0] for x in cur.fetchall()]
+        if user_info['id'] in all_id:
+            pass
+        else:
+            cur.execute('INSERT INTO Users (id,first_name,last_name,username) VALUES (?,?,?,?);', (
+                user_info['id'], user_info['first_name'], user_info['last_name'], user_info['username']))
+
+        conn.commit()
+
+    @classmethod
+    def getuser(self, user_id: int) -> None:
+        directory = os.path.dirname(os.path.realpath(__file__)) + "\DataBase\\"
+
+        if os.path.isfile(f'{directory}Users.sqlite'):
+            conn = sqlite3.connect(f'{directory}Users.sqlite')
+            cur = conn.cursor()
+
+            cur.execute(f'SELECT first_name from Users where id = {user_id}')
+            first_name = cur.fetchall()
+            try:
+                return first_name[0][0]
+            except IndexError:
+                return None
+        else:
+            return None

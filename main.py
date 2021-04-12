@@ -7,8 +7,8 @@ import time
 from dateutil.relativedelta import relativedelta
 import random
 import os
+import sqlite3
 from DBUpdate import DBUpdate
-
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -24,7 +24,7 @@ Format:
 dd/mm/yyyy - 1 (early/ssu)
 dd/mm/yyyy - 1 (late/ssu)
 dd/mm/yyyy - 2 (ssu/patrol)
-dd/mm/yyyy - Training
+dd/mm/yyyy - Training (nil)
 
 Example:
 /set
@@ -88,7 +88,7 @@ class Attendance():
             # print("HELLLLLLLOOOOOOOO       ", update.message.from_user)
             update.message.reply_text("The timings have been updated!")
 
-        except UnboundLocalError:
+        except (UnboundLocalError, IndexError):
             update.message.reply_text(
                 'Please key in this month attendance in this format\n' + sample_attendance_format)
 
@@ -177,33 +177,34 @@ class Attendance():
 
     def set_timer_clock_in(self, update: Update, context: CallbackContext, timing) -> None:
         # print("Hello this is running")
-        due = datetime.now() - self.timing
+        due = self.timing - datetime.now()
+        # print(self.timing)
         #
         # Remember to delete this line of code after testing is done.
         #
         # due = random.randint(10, 30)
-        due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(5, 10)))
+        # due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(5, 10)))
 
         chat_id = update.message.chat_id
         # print(chat_id)
         self.context.job_queue.run_once(
-            self.message_in, due, context=chat_id, name=str(self.timing) + " | Clock In")
+            self.message_in, due, context=chat_id, name=str(self.timing) + " | Clock In " + ";" + str(self.update.message.from_user['id']))
         # print("Hello good afternoon:   ",
         #       self.context.job_queue.get_jobs_by_name(str(self.timing))[0].name)
 
     def set_timer_clock_out(self, update: Update, context: CallbackContext, timing) -> None:
         # print("Hello this is running")
-        due = datetime.now() - self.timing
+        due = self.timing - datetime.now()
         #
         # Remember to delete this line of code after testing is done.
         #
         # due = random.randint(10, 30)
-        due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(15, 20)))
+        # due = datetime.now() - (datetime.now() - relativedelta(seconds=random.randint(15, 20)))
 
         chat_id = update.message.chat_id
         # print(chat_id)
         self.context.job_queue.run_once(
-            self.message_out, due, context=chat_id, name=str(self.timing) + " | Clock Out")
+            self.message_out, due, context=chat_id, name=str(self.timing) + " | Clock Out " + ";" + str(self.update.message.from_user['id']))
         # print("Hello good afternoon:   ",
         #       self.context.job_queue.get_jobs_by_name(str(self.timing))[0].name)
 
@@ -266,7 +267,9 @@ class main():
         dispatcher.add_handler(CommandHandler("start", self.start))
         dispatcher.add_handler(CommandHandler("help", self.help))
         dispatcher.add_handler(CommandHandler("queue", self.queue))
+        dispatcher.add_handler(CommandHandler("queueall", self.queueall))
         dispatcher.add_handler(CommandHandler("reset", self.reset))
+        dispatcher.add_handler(CommandHandler("resetall", self.resetall))
         dispatcher.add_handler(CommandHandler("link", DBUpdate.update_website))
         dispatcher.add_handler(CommandHandler("set", Attendance))
         dispatcher.add_handler(CommandHandler("timing", DBUpdate))
@@ -281,7 +284,7 @@ class main():
         # non-blocking and will stop the bot gracefully.
         updater.idle()
 
-    def start(self, update: Update, _: CallbackContext) -> None:
+    def start(self, update: Update, context: CallbackContext) -> None:
         '''Start messages'''
         update.message.reply_text(
             'Hi! Use this to clock in and out!\n' + "Take note that this bot will not be able to remind you for ES dates or Special events (Watch out for Future Updates!!)")
@@ -289,24 +292,50 @@ class main():
             'First, Please key in this month attendance in this format\n' + sample_attendance_format)
         update.message.reply_text(
             'Second, Please key in this month attendance website (optional) using the /link command\n' + sample_website_format)
+        DBUpdate.updateuser(update, context)
 
     def help(self, update: Update, _: CallbackContext) -> None:
         '''Help Page'''
         update.message.reply_text('''
         Hi! This is the help message. To start, type the /start command. You may refer to the lists for the rest of the commands availble.
-        /start - Start Command
-        /help - This message
-        /queue - Check the queue for your attendance taking
-        /reset - Remove all the queued reminders
-        /link - To create a new link for the next month MA. Type /link for the format.
-        /set - To create reminders according to the date and details mentioned. Type /set for the format.
-        /timing - Used for Clocking in and out. Type /timing for the format.
+        \n/start - Start Command
+        \n/help - This message
+        \n/queue - Check the queue for your attendance taking
+        \n/reset - Remove all the queued reminders
+        \n/link - To create a new link for the next month MA. Type /link for the format.
+        \n/set - To create reminders according to the date and details mentioned. Type /set for the format.
+        \n/timing - Used for Clocking in and out. Type /timing for the format.
+        \n/gettiming - Used to obtain a whole month clocking timing. Type /gettiming for the format.
         ''')
 
     def queue(self, update: Update, context: CallbackContext) -> None:
+        # try:
+        # total_lists_of_jobs = ["2021-03-08 07:45:00 | Clock In ; user_id", "2021-03-07 08:45:00 | Clock In ; user_id", "2021-03-08 21:15:00 | Clock In ; user_id", "2021-03-07 10:00:00 | Clock In ; user_id"]
+
+        total_list_of_jobs = [(x.name.split(";")[0], x.name.split(';')[
+                               1]) for x in context.job_queue.jobs()]
+
+        list_of_jobs = [x[0] for x in total_list_of_jobs if int(
+            x[1].strip()) == update.message.from_user['id']]
+        message_template = '''<b>Current Queue: </b>\n'''
+        if len(list_of_jobs) >= 1:
+            for i in range(len(list_of_jobs)):
+                message_template = f'{message_template}{i+1}. {list_of_jobs[i]}\n'
+        else:
+            message_template = '<b>There are no reminders queued!</b>'
+
+        update.message.reply_text(
+            message_template, parse_mode=parsemode.ParseMode.HTML)
+        # except Exception:
+        #     update.message.reply_text("Did you type /queue correctly?")
+
+    def queueall(self, update: Update, context: CallbackContext) -> None:
         try:
-            # lists_of_jobs = ["2021-03-08 07:45:00", "2021-03-07 08:45:00", "2021-03-08 21:15:00", "2021-03-07 10:00:00"]
-            list_of_jobs = [x.name for x in context.job_queue.jobs()]
+            total_list_of_jobs = [(x.name.split(";")[0], DBUpdate.getuser(int(x.name.split(';')[
+                                   1].strip()))) for x in context.job_queue.jobs()]
+            list_of_jobs = [f'{date} | {first_name}' if first_name !=
+                            None else f'{date} | NIL' for date, first_name in total_list_of_jobs]
+
             message_template = '''<b>Current Queue: </b>\n'''
             if len(list_of_jobs) >= 1:
                 for i in range(len(list_of_jobs)):
@@ -317,9 +346,21 @@ class main():
             update.message.reply_text(
                 message_template, parse_mode=parsemode.ParseMode.HTML)
         except Exception:
-            update.message.reply_text("Did you type /queue correctly?")
+            update.message.reply_text("Did you type /queueall correctly?")
 
     def reset(self, update: Update, context: CallbackContext) -> None:
+        try:
+            list_of_jobs = context.job_queue.jobs()
+            for job in list_of_jobs:
+                if int(job.name.split(';')[1].strip()) == update.message.from_user['id']:
+                    job.schedule_removal()
+            update.message.reply_text(
+                "All of the reminders have been deleted!")
+
+        except Exception:
+            update.message.reply_text("Did you type /reset correctly?")
+
+    def resetall(self, update: Update, context: CallbackContext) -> None:
         try:
             list_of_jobs = context.job_queue.jobs()
             for job in list_of_jobs:
@@ -328,7 +369,7 @@ class main():
                 "All of the reminders have been deleted!")
 
         except Exception:
-            update.message.reply_text("Did you type /reset correctly?")
+            update.message.reply_text("Did you type /resetall correctly?")
 
 
 if __name__ == '__main__':
